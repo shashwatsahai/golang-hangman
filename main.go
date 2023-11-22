@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
+	"time"
 
 	"github.com/shashwatsahai/golang-hangman/utils"
 	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 // func homeHandler(w http.ResponseWriter, r *http.Request) {
@@ -42,7 +45,49 @@ func wordHandler(w http.ResponseWriter, r *http.Request) {
 
 func handleGet(w http.ResponseWriter, r *http.Request) {
 	// Handle GET request logic here
-	fmt.Fprint(w, "GET request for /word")
+	db, err := utils.MongoClient()
+	if err != nil {
+		panic(err)
+	}
+	hangmancol := db.Collection("hangman")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	length, err := hangmancol.CountDocuments(ctx, bson.M{})
+	if err != nil {
+		fmt.Println(err)
+		http.Error(w, "Error counting documents", http.StatusInternalServerError)
+		return
+	}
+	// rand.Seed(time.Now().UnixNano())
+	selected := rand.Intn(int(length))
+
+	fmt.Println("GET request for /word", selected)
+
+	findOptions := options.Find().SetSkip(int64(selected)).SetLimit(1)
+
+	// Define a filter (empty in this example to match all documents)
+	filter := bson.D{{}}
+
+	// Perform the find operation
+	cursor, err := hangmancol.Find(context.TODO(), filter, findOptions)
+	if err != nil {
+		fmt.Println(err)
+		http.Error(w, "Error counting documents", http.StatusInternalServerError)
+		return
+	}
+	defer cursor.Close(context.TODO())
+	var result bson.M
+	if cursor.Next(context.TODO()) {
+		err := cursor.Decode(&result)
+		if err != nil {
+			fmt.Println(err)
+			http.Error(w, "Error counting documents", http.StatusInternalServerError)
+			return
+		}
+		fmt.Println("result", result["word"])
+	}
+
+	fmt.Fprint(w, result["word"])
 
 }
 
@@ -72,7 +117,7 @@ func handlePost(w http.ResponseWriter, r *http.Request) {
 	for i := 0; i < len(words); i++ {
 		fmt.Println(words[i])
 		// s[i] = words[i]
-		document := bson.D{{"word", words[i]}}
+		document := bson.D{{Key: "word", Value: words[i]}}
 		result, err := hangmancol.InsertOne(context.TODO(), document)
 		if err != nil {
 			panic(err)
